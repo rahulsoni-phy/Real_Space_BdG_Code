@@ -113,11 +113,9 @@ int main(int argc, char *argv[]){
         file_out_PairOPs<<x<<"    "<<Hamiltonian_TL_.new_Pair_OPs_[x].real()<<"     "<<Hamiltonian_TL_.new_Pair_OPs_[x].imag()<<endl;
     }
 
-    if(Parameters_TL_.get_qpi){
-        //Hamiltonian_TL_.calculateLDOSplusQPI();
-        Hamiltonian_TL_.calculateQPIonly(0.0);
-        Hamiltonian_TL_.calculateQPIonly(1.0);
-        Hamiltonian_TL_.calculateQPIonly(-1.0);
+    Hamiltonian_TL_.calculateAvgdLDOS();
+    if(Parameters_TL_.singleImpurity){
+        Hamiltonian_TL_.calculateQPI(0.0);
     }
 
     return 0;

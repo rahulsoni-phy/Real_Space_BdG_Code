@@ -6,37 +6,41 @@
 PBC_X=True
 PBC_Y=True
 
-Sites_X=20
-Sites_Y=20
+Sites_X=30
+Sites_Y=30
 #----------------------->
 
 Threads=4
 
 #Model Parameters:------>
+#All parameters are in meV here, 
+#converted into eV inside the code:
+
 NN_Hopping=-52.7
-OnsiteE=-0.017
 MagneticField=0.0
 
-Onsite_Int_U=0.66
-#NN_Int_factor=0.33334
+OnsiteE=-17
+Onsite_Int_U=660
+mu_fixed=0
+
+#factor is U1/U0:
 NN_Int_factor=0.0
 
-Phenom_Pair_Pot=0.1
+Phenom_Pair_Pot=0
 
 Enable_Hartree=True
 Enable_Fock=False
 Enable_Pairing=False
 
 Temperature=0.0001
-mu_fixed=0.0
 #----------------------->
 #Pairing Ansatz Types:-->
 PairingType=2
 #0->onsite singlet; 1->NN triplet, 2->NN singlet
 
-#Disorder Parameters:--->
+#Disorder Parameters in meV:--->
 SingleImpurity=False
-ImpurityFactor=-0.5
+SingleImpurityValue=0
 
 DisorderSeed=1
 DisorderType=Charge
@@ -51,12 +55,12 @@ Random_Seed=3
 Max_Iterations=500
 Convergence_Error=0.0000001
 alpha_OP=0.4
+beta_damp=0.0
 
 Simple_Mixing=False
 #----------------------->
 
 #Observables:------>
-Calculate_QPI=True
 Spectral_Akw=False
 Spectral_Akyw=False
 

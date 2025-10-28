@@ -26,16 +26,16 @@ public:
 
 	//Disorder params:---->
 	bool singleImpurity,chargeDisorder;
-	double impurityFactor,impurityval;
+	double impurityval;
 	int disorder_seed;
 
 	// Observables details:--->
-	bool get_qpi, get_Akw, get_Akyw;
+	bool get_Akw, get_Akyw;
 	double w_min, w_max, dw_, eta_;
 
 	//Declaring self-consistency params:---->
 	bool Simple_mixing, Broyden_mixing;
-	double Conv_err, alpha_;
+	double Conv_err, alpha_,beta_damp;
 	int Seed_, Max_iters;
 
 	bool read_OP_;
@@ -90,6 +90,7 @@ void Parameters_TL::Initialize(string input_file){
 	t5_hop = -0.0318 * t1_hop;
 
 	U0_ =  matchstring(input_file, "Onsite_Int_U");
+	U0_ = U0_ * 0.001;
 	U1byU0_factor = matchstring(input_file, "NN_Int_factor");
 	U1_ = U0_*U1byU0_factor;
 	cout<<"Onsite interaction: U0 = "<<U0_<<", NN interaction: U1 = "<<U1_<<endl;
@@ -98,6 +99,8 @@ void Parameters_TL::Initialize(string input_file){
 	Bfield = matchstring(input_file, "MagneticField");
 
 	mu_fixed = matchstring(input_file, "mu_fixed");
+	mu_fixed = mu_fixed * 0.001;
+
 	temp_ = matchstring(input_file, "Temperature");
 	beta = 1.0 / (1.0 * temp_);
 
@@ -138,6 +141,7 @@ void Parameters_TL::Initialize(string input_file){
 			cout<<"NN triplet pairing is considered"<<endl;
 		}
 		pair_pot = matchstring(input_file, "Phenom_Pair_Pot");
+		pair_pot = pair_pot * 0.001;
 	}
 	else{
 		doPairing=false;
@@ -149,8 +153,8 @@ void Parameters_TL::Initialize(string input_file){
 	impurity_str = matchstring2(input_file,"SingleImpurity");
 	if(impurity_str == "True"){
 		singleImpurity = true;
-		impurityFactor = matchstring(input_file, "ImpurityFactor");
-		impurityval = impurityFactor * t1_hop;
+		impurityval = matchstring(input_file, "SingleImpurityValue");
+		impurityval = impurityval * 0.001;
 		cout<<"Single-impurity check! impurity value ="<<impurityval<<endl;
 	}
 	else{
@@ -179,6 +183,7 @@ void Parameters_TL::Initialize(string input_file){
 
 	Conv_err = matchstring(input_file, "Convergence_Error");
 	alpha_ = matchstring(input_file, "alpha_OP");
+	beta_damp = matchstring(input_file, "beta_damp");
 
 	Seed_ = int(matchstring(input_file, "Random_Seed"));
 	Max_iters = int(matchstring(input_file, "Max_Iterations"));
@@ -186,12 +191,12 @@ void Parameters_TL::Initialize(string input_file){
 	//----------------------------------------------------------------------//
 	
 	string qpi_str, Akw_str, Akyw_str;
-	qpi_str = matchstring2(input_file, "Calculate_QPI");
+	/*qpi_str = matchstring2(input_file, "Calculate_QPI");
 	if (qpi_str == "True"){
 		get_qpi = true;
 		cout << "Measuring QPI" << endl;		
 	}
-	else {	get_qpi = false;	}
+	else {	get_qpi = false;	} */
 
 	Akw_str = matchstring2(input_file, "Spectral_Akw");
 	if (Akw_str == "True"){

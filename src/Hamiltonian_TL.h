@@ -39,9 +39,14 @@ class Hamiltonian_TL{
     void performSVD(Mat_2_doub &A, Mat_2_doub &VT, Mat_2_doub &U, Mat_1_doub &Sigma);
     void performComplexSVD(Mat_2_Complex_doub &A, Mat_2_Complex_doub &VT, Mat_2_Complex_doub &U, Mat_1_doub &Sigma);
 
+    double calculateTotalParticles();
+    double calculateLDOSatSite(int rx, int ry, double w_val);
+    void calculateAvgdLDOS();
+    void calculateQPI(double w_val);
+
     void calculateLDOSplusQPI();
     double Lorentzian(double val);
-    void calculateQPIonly(double w_val);
+    void calculateQPIusingTmatrix(double w_val);
     
     
     Parameters_TL &Parameters_TL_;
@@ -65,7 +70,8 @@ class Hamiltonian_TL{
     int HF_OPs_size, Pair_OPs_size;
     int posN;
     
-    double alpha;
+    double alpha, beta_damping,alpha_AA;
+
     //For Broyden Mixing:
     Mat_2_doub B_m, B_mp1;      //mixing (inverse Jacobian) matrices (real)
     Mat_1_doub del_X, del_F;    //difference in OPs and residuals
@@ -149,6 +155,8 @@ void Hamiltonian_TL::Initialize(){
     newOPs_.resize(OPs_size);
     alpha = Parameters_TL_.alpha_;
     //For Anderson mixing:
+    beta_damping = Parameters_TL_.beta_damp;
+    alpha_AA=1.0;
     AM_depth = 10;
     gamma_k.resize(AM_depth);
     x_k.resize(OPs_size);       f_k.resize(OPs_size);       x_kp1.resize(OPs_size);
@@ -1007,14 +1015,13 @@ void Hamiltonian_TL::updateOrderParamsAnderson(int iter){
                 new_f_k[x] = f_k[x] - 1.0*temp_f;
             }
             for(int x=0;x<OPs_size;x++){
-                x_kp1[x] = new_x_k[x] + alpha * new_f_k[x];
+                x_kp1[x] = new_x_k[x] + alpha_AA * new_f_k[x];
             }
 
             //obtaining newOPs, keeping flexibility of damping if required: 
             //to reduce oscillations of Anderson by damping it with simple mixing
-            double beta=0.0;
             for(int x=0;x<OPs_size;x++){
-                newOPs_[x] = (1-beta) * x_kp1[x] + beta * (x_k[x] + alpha * f_k[x]);
+                newOPs_[x] = (1-beta_damping) * x_kp1[x] + beta_damping * (x_k[x] + alpha * f_k[x]);
             }
             //Keeping the Hartree OPs strictly real:
             for(int x=0;x<OPs_size;x++){
@@ -1233,10 +1240,121 @@ void Hamiltonian_TL::performComplexSVD(Mat_2_Complex_doub &A, Mat_2_Complex_doub
     }
 }
 
+double Hamiltonian_TL::calculateTotalParticles(){
+    double Nup_tot,Ndn_tot;
+    Nup_tot=0.0;    Ndn_tot=0.0;
+    for(int rx=0;rx<lx_;rx++){
+        for(int ry=0;ry<ly_;ry++){
+            int r = Neighbors_TL_.getIndex(rx, ry);
+            int r_up = Neighbors_TL_.getIndex(rx, ry);
+            int r_dn = Neighbors_TL_.getIndex(rx, ry) + nsites;
 
+            for(int n=posN;n<BdGsize;n++){
+                double ffn = fermifunction(evals_[n]);
+                Nup_tot += norm(uvecs_[r_up][n]) * ffn + norm(vvecs_[r_up][n]) * (1.0 - ffn);
+                Ndn_tot += norm(uvecs_[r_dn][n]) * ffn + norm(vvecs_[r_dn][n]) * (1.0 - ffn);
+            }
+
+        }
+    }
+    double Ntot = Nup_tot + Ndn_tot;
+    double n_fill = Ntot / (1.0*nsites);
+    double p_dop  = (1.0 - n_fill);
+
+    cout<<"Total_Up-Dn_particles=("<<Nup_tot<<","<<Ndn_tot<<")"<<endl;
+    cout<<"Electron_filling_and_hole_doping=("<<n_fill<<","<<p_dop<<")"<<endl;
+
+    return Ntot;
+}
+
+double Hamiltonian_TL::Lorentzian(double val){
+    return ( (1.0/PI)*(eta/(val*val + eta*eta)) );
+}
+
+double Hamiltonian_TL::calculateLDOSatSite(int rx, int ry, double w_val){
+    double rho=0.0;
+    int site = Neighbors_TL_.getIndex(rx, ry);
+    //calculating LDOS: rho(r,w) = sum_{n,s}[|u_n(r,s)|^2 delta(w-En) + |v_n(r,s)|^2 delta(w+En)]
+    for(int spin=0;spin<nspin;spin++){
+        int r = site + spin*nsites;
+        for(int n=posN;n<BdGsize;n++){
+            double En = evals_[n];
+            rho += norm(uvecs_[r][n]) * Lorentzian(w_val-En) + norm(vvecs_[r][n]) * Lorentzian(w_val+En);
+        }
+    }
+    return rho;
+}
+
+void Hamiltonian_TL::calculateAvgdLDOS(){
+    ofstream file_avg_ldos_out("Avg_LDOS_vs_omega.txt");
+    //calculating avgd LDOS: rho(w) = (1/nsites) * sum_{n,r,s}[|u_n(r,s)|^2 delta(w-En) + |v_n(r,s)|^2 delta(w+En)]
+    for(int om=0;om<wsize;om++){
+        double w = wmin + om*dw;
+        double sum = 0.0;
+        for(int rx=0;rx<lx_;rx++){
+            for(int ry=0;ry<ly_;ry++){
+                sum += calculateLDOSatSite(rx, ry, w);
+            }
+        }
+        double avg_ldos = sum/double(nsites);
+        file_avg_ldos_out<<w<<"     "<<avg_ldos<<endl;
+    }
+}
+
+void Hamiltonian_TL::calculateQPI(double w_val){
+    double wp_val = 0.001*w_val;
+    Mat_2_doub ldos_,mod_ldos;
+    ldos_.resize(lx_);  mod_ldos.resize(lx_);
+    for(int rx=0;rx<lx_;rx++){
+        ldos_[rx].resize(ly_);  mod_ldos[rx].resize(ly_);
+        for(int ry=0;ry<ly_;ry++){
+            ldos_[rx][ry] = 0.0;    mod_ldos[rx][ry] = 0.0;
+        }
+    }
+
+    double avg_ldos=0.0;
+    for(int rx=0;rx<lx_;rx++){
+        for(int ry=0;ry<ly_;ry++){
+            ldos_[rx][ry] = calculateLDOSatSite(rx,ry,wp_val);
+            avg_ldos += ldos_[rx][ry];
+        }
+    }
+    avg_ldos = avg_ldos/double(nsites);
+
+    //Calculating local density modulations: d_rho(r,w) = rho(r,w) - <rho(w)>_r
+    for(int rx=0;rx<lx_;rx++){
+        for(int ry=0;ry<ly_;ry++){
+            mod_ldos[rx][ry] = ldos_[rx][ry] - avg_ldos;
+        }
+    }
+
+    string head="QPI_for_w";
+    string tail="mV.txt";
+    ofstream file_qpi_out(head + to_string(w_val) + tail);
+
+    for(int qx_ind=-lx_/2;qx_ind<lx_/2;qx_ind++){
+        double qx = (2.0*PI*qx_ind)/(1.0*lx_);
+        for(int qy_ind=-ly_/2;qy_ind<ly_/2;qy_ind++){
+            double qy = (2.0*PI*qy_ind)/(1.0*ly_);
+            
+            complex<double> raw_qpi = Zero_Complex;
+            for(int rx=0;rx<lx_;rx++){
+                for(int ry=0;ry<ly_;ry++){//if x_r, y_r doesn't work; directly use rx, ry instead
+                    double x_real = 1.0*rx + 0.5*ry;
+                    double y_real = (sqrt(3.0)/2.0)*ry;
+
+                    raw_qpi += exp(-Iota_Complex*(qx*x_real + qy*y_real)) * mod_ldos[rx][ry] * (1.0/double(nsites));
+                }
+            }
+            file_qpi_out<<qx<<"     "<<qy<<"    "<<norm(raw_qpi)<<endl;    
+        }
+        file_qpi_out<<endl;
+    }
+
+}
 
 void Hamiltonian_TL::calculateLDOSplusQPI(){
-    //calculating LDOS: rho(r,w) = sum_{n}[|u_n(r)|^2 delta(w-En) + |v_n(r)|^2 delta(w+En)]
+    
     Mat_1_doub avg_ldos(wsize,0.0);
     Mat_3_doub ldos_,mod_ldos;
     ldos_.resize(lx_);  mod_ldos.resize(lx_);
@@ -1250,12 +1368,8 @@ void Hamiltonian_TL::calculateLDOSplusQPI(){
             }
         }
     }
-
-    string file_ldos = "LDOS_3D.txt";
-    ofstream file_ldos_out(file_ldos.c_str());
-
-    string file_avg_ldos = "Avg_LDOS_vs_omega.txt";
-    ofstream file_avg_ldos_out(file_avg_ldos.c_str());
+    //ofstream file_ldos_out("LDOS_real_space.txt");
+    ofstream file_avg_ldos_out("Avg_LDOS_vs_omega.txt");
 
     for(int om=0;om<wsize;om++){
         double w = wmin + om*dw;
@@ -1267,7 +1381,7 @@ void Hamiltonian_TL::calculateLDOSplusQPI(){
                 for(int spin=0;spin<nspin;spin++){
                     int r = site + spin*nsites;
 
-                    for(int n=0;n<BdGsize;n++){
+                    for(int n=posN;n<BdGsize;n++){
                         double En = evals_[n];
                         rho += norm(uvecs_[r][n]) * Lorentzian(w-En) + norm(vvecs_[r][n]) * Lorentzian(w+En);
                     }
@@ -1275,135 +1389,72 @@ void Hamiltonian_TL::calculateLDOSplusQPI(){
                 ldos_[rx][ry][om] = rho;
                 avg_ldos[om] += rho;
 
-                file_ldos_out<<rx<<"    "<<ry<<"    "<<w<<"     "<<ldos_[rx][ry][om]<<endl;
+                //file_ldos_out<<rx<<"    "<<ry<<"    "<<w<<"     "<<ldos_[rx][ry][om]<<endl;
             }
         }
         avg_ldos[om] = avg_ldos[om]/(1.0*nsites);
         file_avg_ldos_out<<w<<" "<<avg_ldos[om]<<endl;
     }
 
-    //Calculating local density modulations: d_rho(r,w) = rho(r,w) - <rho(w)>_r
-    for(int om=0;om<wsize;om++){
-        for(int rx=0;rx<lx_;rx++){
-            for(int ry=0;ry<ly_;ry++){
-                mod_ldos[rx][ry][om] = ldos_[rx][ry][om] - avg_ldos[om];
-            }
-        }
-    }
-
-    //Calculating QPI: I(q,w) = |rho(q,w)| = |sum_r e^{-iq.r}d_rho(r,w)|
-    Mat_3_doub qpi_;
-    qpi_.resize(lx_);
-    for(int qx_ind=0;qx_ind<lx_;qx_ind++){
-        qpi_[qx_ind].resize(ly_);
-        for(int qy_ind=0;qy_ind<ly_;qy_ind++){
-            qpi_[qx_ind][qy_ind].resize(wsize);
-            for(int om=0;om<wsize;om++){
-                qpi_[qx_ind][qy_ind][om] = 0.0;
-            }
-        }
-    }
-    string file_qpi = "QPI_3D.txt";
-    ofstream file_qpi_out(file_qpi.c_str());
-
-    string file_qpi_pm = "QPI_pm3d.txt";
-    ofstream file_qpi_pm_out(file_qpi_pm.c_str());
-
-    for(int om=0;om<wsize;om++){
-        double w = wmin + om*dw;
-        for(int qx_ind=0;qx_ind<lx_;qx_ind++){
-            double qx = (2.0*PI*qx_ind)/(1.0*lx_);
-            for(int qy_ind=0;qy_ind<ly_;qy_ind++){
-                double qy = (2.0*PI*qy_ind)/(1.0*ly_);
-
-                complex<double> raw_qpi = Zero_Complex;
-                for(int rx=0;rx<lx_;rx++){
-                    for(int ry=0;ry<ly_;ry++){
-                        double x_real = 1.0*rx + 0.5*ry;
-                        double y_real = (sqrt(3.0)/2.0)*ry;
-
-                        raw_qpi += exp(-Iota_Complex*(qx*x_real + qy*y_real)) * mod_ldos[rx][ry][om] * (1.0/(1.0*nsites));
-                    }
-                }
-                qpi_[qx_ind][qy_ind][om] = abs(raw_qpi);
-                file_qpi_out<<qx<<"     "<<qy<<"    "<<w<<"     "<<qpi_[qx_ind][qy_ind][om]<<endl;
-                file_qpi_pm_out<<qx<<"  "<<qy<<"    "<<w<<"     "<<qpi_[qx_ind][qy_ind][om]<<endl;
-            }
-            file_qpi_pm_out<<endl;
-        }
-    }
-
-}
-
-double Hamiltonian_TL::Lorentzian(double val){
-    return ( (1.0/PI)*(eta/(val*val + eta*eta)) );
-}
-
-void Hamiltonian_TL::calculateQPIonly(double w_val){
-    double wp_val = w_val * 0.001;
-
-    //calculating LDOS: rho(r,w) = sum_{n}[|u_n(r)|^2 delta(w-En) + |v_n(r)|^2 delta(w+En)]
-    Mat_2_doub ldos_,mod_ldos;
-    ldos_.resize(lx_);  mod_ldos.resize(lx_);
-    
-    for(int rx=0;rx<lx_;rx++){
-        ldos_[rx].resize(ly_);      mod_ldos[rx].resize(ly_);
-        for(int ry=0;ry<ly_;ry++){
-            ldos_[rx][ry]=0.0;      mod_ldos[rx][ry]=0.0;
-        }
-    }
-
-    double avg_ldos = 0.0;
-    for(int rx=0;rx<lx_;rx++){
-        for(int ry=0;ry<ly_;ry++){
-            int site = Neighbors_TL_.getIndex(rx,ry);
-            double rho = 0.0;
-            for(int spin=0;spin<nspin;spin++){
-                int r = site + spin*nsites;
-                for(int n=0;n<BdGsize;n++){
-                    double En = evals_[n];
-                    rho += norm(uvecs_[r][n]) * Lorentzian(wp_val-En) + norm(vvecs_[r][n]) * Lorentzian(wp_val+En);
-                }
-            }
-            ldos_[rx][ry] = rho;
-            avg_ldos += rho/(1.0*nsites);
-        }
-    }
-
-    //Calculating local density modulations: d_rho(r,w) = rho(r,w) - <rho(w)>_r
-    for(int rx=0;rx<lx_;rx++){
-        for(int ry=0;ry<ly_;ry++){
-            mod_ldos[rx][ry] = ldos_[rx][ry] - avg_ldos;
-            //mod_ldos[rx][ry] = ldos_[rx][ry];
-        }
-    }
-
-    string head="QPI_for_w";
-    string tail="mV.txt";
-
-    string file_qpi = head + to_string(w_val) + tail;
-    ofstream file_qpi_out(file_qpi.c_str());
-
-    //Calculating QPI: I(q,w) = |rho(q,w)| = |sum_r e^{-iq.r}d_rho(r,w)|
-    for(int qy_ind=-ly_/2;qy_ind<=ly_/2;qy_ind++){
-        double qy = (2.0*PI*qy_ind)/(1.0*ly_);
-        for(int qx_ind=-lx_/2;qx_ind<=lx_/2;qx_ind++){
-            double qx = (2.0*PI*qx_ind)/(1.0*lx_);
-
-            complex<double> raw_qpi = Zero_Complex;
+    if(Parameters_TL_.singleImpurity){
+        //Calculating local density modulations: d_rho(r,w) = rho(r,w) - <rho(w)>_r
+        for(int om=0;om<wsize;om++){
             for(int rx=0;rx<lx_;rx++){
                 for(int ry=0;ry<ly_;ry++){
-                    double x_real = 1.0*rx + 0.5*ry;
-                    double y_real = (sqrt(3.0)/2.0)*ry;
-
-                    raw_qpi += exp(-Iota_Complex*(qx*x_real + qy*y_real)) * mod_ldos[rx][ry] * (1.0/(1.0*nsites));
+                    mod_ldos[rx][ry][om] = ldos_[rx][ry][om] - avg_ldos[om];
                 }
             }
-            file_qpi_out<<qx<<"     "<<qy<<"    "<<abs(raw_qpi)<<endl;
         }
-        file_qpi_out<<endl;
-    }
 
+        //Calculating QPI: I(q,w) = |d_rho(q,w)|^2 = |sum_r e^{-iq.r}d_rho(r,w)|^2
+/*        Mat_3_doub qpi_;
+        qpi_.resize(lx_);
+        for(int qx_ind=0;qx_ind<lx_;qx_ind++){
+            qpi_[qx_ind].resize(ly_);
+            for(int qy_ind=0;qy_ind<ly_;qy_ind++){
+                qpi_[qx_ind][qy_ind].resize(wsize);
+                for(int om=0;om<wsize;om++){
+                    qpi_[qx_ind][qy_ind][om] = 0.0;
+                }
+            }
+        }
+*/
+        //string file_qpi_pm = "QPI_pm3d.txt";
+        //ofstream file_qpi_pm_out(file_qpi_pm.c_str());
+
+        string head="QPI_for_w";
+        string tail="mV.txt";
+        
+        for(int om=0;om<wsize;om++){
+            double w = wmin + om*dw;
+            ofstream file_qpi_out(head + to_string(w) + tail);
+
+            for(int qy_ind=-ly_/2;qy_ind<=ly_/2;qy_ind++){
+                double qy = (2.0*PI*qy_ind)/(1.0*ly_);
+                for(int qx_ind=-lx_/2;qx_ind<=lx_/2;qx_ind++){
+                    double qx = (2.0*PI*qx_ind)/(1.0*lx_);
+
+                    complex<double> raw_qpi = Zero_Complex;
+                    for(int rx=0;rx<lx_;rx++){
+                        for(int ry=0;ry<ly_;ry++){
+                            
+                            raw_qpi += exp(-Iota_Complex*(qx*rx + qy*ry)) * mod_ldos[rx][ry][om] * (1.0/(1.0*nsites));
+                        }
+                    }
+                    file_qpi_out<<qx<<"     "<<qy<<"    "<<norm(raw_qpi)<<endl;
+                    //qpi_[qx_ind][qy_ind][om] = norm(raw_qpi);
+                    //file_qpi_out<<qx<<"     "<<qy<<"     "<<qpi_[qx_ind][qy_ind][om]<<endl;
+                    //file_qpi_pm_out<<qx<<"  "<<qy<<"    "<<w<<"     "<<qpi_[qx_ind][qy_ind][om]<<endl;
+                }
+                //file_qpi_pm_out<<endl;
+            }
+        }
+
+    }    
+
+}
+
+void Hamiltonian_TL::calculateQPIusingTmatrix(double w_val){
 
 }
 
