@@ -87,12 +87,12 @@ int main(int argc, char *argv[]){
             }
         }
         else{
-            //Hamiltonian_TL_.updateOrderParamsBroyden(iter);
-            Hamiltonian_TL_.updateOrderParamsAnderson(iter);
+            Hamiltonian_TL_.updateOrderParamsBroyden(iter);
+            //Hamiltonian_TL_.updateOrderParamsAnderson(iter);
         }
         
         OP_error = Hamiltonian_TL_.getOPError();
-        file_out_progress<<iter<<"  "<<OP_error<<endl;
+        file_out_progress<<iter<<"  "<<Hamiltonian_TL_.calculateTotalParticles()<<" "<<OP_error<<endl;
 
         OPs_old = Hamiltonian_TL_.newOPs_;
         OPs_HF_Old = Hamiltonian_TL_.new_HF_OPs_;
@@ -114,8 +114,12 @@ int main(int argc, char *argv[]){
     }
 
     Hamiltonian_TL_.calculateAvgdLDOS();
+
     if(Parameters_TL_.singleImpurity){
-        Hamiltonian_TL_.calculateQPI(0.0);
+        Hamiltonian_TL_.calculateLDOSatImpuritySite();
+        Hamiltonian_TL_.calculateQPI(20.0);
+        Hamiltonian_TL_.calculateQPI(-20.0);
+
     }
 
     return 0;

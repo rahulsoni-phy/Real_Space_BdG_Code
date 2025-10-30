@@ -43,11 +43,12 @@ class Hamiltonian_TL{
     double calculateLDOSatSite(int rx, int ry, double w_val);
     void calculateAvgdLDOS();
     void calculateQPI(double w_val);
+    void calculateLDOSatImpuritySite();
 
     void calculateLDOSplusQPI();
     double Lorentzian(double val);
     void calculateQPIusingTmatrix(double w_val);
-    
+    void calculateSpatialLocalization(int state);
     
     Parameters_TL &Parameters_TL_;
     Neighbors_TL &Neighbors_TL_;
@@ -206,9 +207,9 @@ void Hamiltonian_TL::addHoppingTerms(){
                     }
                 }
 
-                //Chemical potential term:
-                C_mat[electron_index][electron_index] += (-1.0)*onsiteE*One_Complex;
-                C_mat[hole_index][hole_index]         +=  (1.0)*onsiteE*One_Complex;
+                //OnsiteE + Chemical potential + Onsite Interaction offset terms:
+                C_mat[electron_index][electron_index] += (-1.0)*(onsiteE + mu_ + 0.5*U0)*One_Complex;
+                C_mat[hole_index][hole_index]         +=  (1.0)*(onsiteE + mu_ + 0.5*U0)*One_Complex;
                 //Magnetic field term:
                 C_mat[electron_index][electron_index] +=        (pow(-1.0, 1.0 * spin))*B_*One_Complex;
                 C_mat[hole_index][hole_index]         += (-1.0)*(pow(-1.0, 1.0 * spin))*B_*One_Complex;
@@ -233,6 +234,7 @@ void Hamiltonian_TL::addHoppingTerms(){
             }
         }
     }
+
 }
 
 void Hamiltonian_TL::addInteractionTerms(){
@@ -324,6 +326,9 @@ void Hamiltonian_TL::addInteractionTerms(){
 
 void Hamiltonian_TL::addPairingTerms(){
     double Vp_ = Parameters_TL_.pair_pot;
+    cout<<"Pairing potential="<<Vp_<<endl;
+    
+    if(Parameters_TL_.doPairing){
 
     if(Parameters_TL_.pairingType==0){//onsite s-wave pairing
         
@@ -463,6 +468,8 @@ void Hamiltonian_TL::addPairingTerms(){
     }
     else{
         throw std::logic_error("Pairing ansatz ill-defined!");
+    }
+
     }
     
     //Antisymmetry check for pairing OPs: D_{ij} = - D_{ji}
@@ -1301,8 +1308,17 @@ void Hamiltonian_TL::calculateAvgdLDOS(){
     }
 }
 
+void Hamiltonian_TL::calculateLDOSatImpuritySite(){
+    ofstream file_avg_ldos_out("LDOS_vs_omega_at_impurity_site.txt");
+    for(int om=0;om<wsize;om++){
+        double w = wmin + om*dw;
+        file_avg_ldos_out<<w<<"     "<<calculateLDOSatSite(lx_/2,ly_/2,w)<<endl;
+    }
+}
+
 void Hamiltonian_TL::calculateQPI(double w_val){
     double wp_val = 0.001*w_val;
+
     Mat_2_doub ldos_,mod_ldos;
     ldos_.resize(lx_);  mod_ldos.resize(lx_);
     for(int rx=0;rx<lx_;rx++){
@@ -1332,9 +1348,9 @@ void Hamiltonian_TL::calculateQPI(double w_val){
     string tail="mV.txt";
     ofstream file_qpi_out(head + to_string(w_val) + tail);
 
-    for(int qx_ind=-lx_/2;qx_ind<lx_/2;qx_ind++){
+    for(int qx_ind=-lx_/2;qx_ind<=lx_/2;qx_ind++){
         double qx = (2.0*PI*qx_ind)/(1.0*lx_);
-        for(int qy_ind=-ly_/2;qy_ind<ly_/2;qy_ind++){
+        for(int qy_ind=-ly_/2;qy_ind<=ly_/2;qy_ind++){
             double qy = (2.0*PI*qy_ind)/(1.0*ly_);
             
             complex<double> raw_qpi = Zero_Complex;
@@ -1344,6 +1360,7 @@ void Hamiltonian_TL::calculateQPI(double w_val){
                     double y_real = (sqrt(3.0)/2.0)*ry;
 
                     raw_qpi += exp(-Iota_Complex*(qx*x_real + qy*y_real)) * mod_ldos[rx][ry] * (1.0/double(nsites));
+                //    raw_qpi += exp(-Iota_Complex*(qx*rx + qy*ry)) * mod_ldos[rx][ry] * (1.0/double(nsites));
                 }
             }
             file_qpi_out<<qx<<"     "<<qy<<"    "<<norm(raw_qpi)<<endl;    
@@ -1455,6 +1472,25 @@ void Hamiltonian_TL::calculateLDOSplusQPI(){
 }
 
 void Hamiltonian_TL::calculateQPIusingTmatrix(double w_val){
+
+}
+
+void Hamiltonian_TL::calculateSpatialLocalization(int state){
+    string head("Spatial_localization_of_state_");
+    string tail(".txt");
+    ofstream file_spat_loc_out(head + to_string(state) + tail);
+
+    for(int rx=0;rx<lx_;rx++){
+        for(int ry=0;ry<ly_;ry++){
+            int site = Neighbors_TL_.getIndex(rx, ry);
+            double rho_r = 0.0;
+            for(int spin=0;spin<nspin;spin++){
+                int r = site + spin*nsites;
+                rho_r += norm(uvecs_[r][state]) + norm(vvecs_[r][state]);
+            }
+            file_spat_loc_out<<rx<<"    "<<ry<<"    "<<rho_r<<endl;
+        }
+    }
 
 }
 

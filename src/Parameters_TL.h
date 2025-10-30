@@ -93,10 +93,13 @@ void Parameters_TL::Initialize(string input_file){
 	U0_ = U0_ * 0.001;
 	U1byU0_factor = matchstring(input_file, "NN_Int_factor");
 	U1_ = U0_*U1byU0_factor;
-	cout<<"Onsite interaction: U0 = "<<U0_<<", NN interaction: U1 = "<<U1_<<endl;
+	cout<<"Onsite interaction: U0 = "<<U0_<<"eV, NN interaction: U1 = "<<U1_<<"eV"<<endl;
 
 	onsiteE = matchstring(input_file, "OnsiteE");
+	onsiteE = onsiteE * 0.001;
+
 	Bfield = matchstring(input_file, "MagneticField");
+	Bfield = Bfield * 0.001;
 
 	mu_fixed = matchstring(input_file, "mu_fixed");
 	mu_fixed = mu_fixed * 0.001;
@@ -158,6 +161,7 @@ void Parameters_TL::Initialize(string input_file){
 		cout<<"Single-impurity check! impurity value ="<<impurityval<<endl;
 	}
 	else{
+		impurityval = 0.0;
 		disorder_seed = int(matchstring(input_file, "DisorderSeed"));
 	}
 
@@ -213,9 +217,13 @@ void Parameters_TL::Initialize(string input_file){
 	else {	get_Akyw = false;	}
 
 	w_min = matchstring(input_file, "omega_min");
+	w_min = w_min * 0.001;
 	w_max = matchstring(input_file, "omega_max");
+	w_max = w_max * 0.001;
 	dw_ = matchstring(input_file, "d_omega");
+	dw_ = dw_ * 0.001;
 	eta_ = matchstring(input_file, "broadening");
+	eta_ = eta_ * 0.001;
 	//----------------------------------------------------------------------//
 	string read_op_str;
 	read_op_str = matchstring2(input_file, "Read_OP_from_file");

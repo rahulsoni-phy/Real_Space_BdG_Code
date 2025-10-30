@@ -6,8 +6,8 @@
 PBC_X=True
 PBC_Y=True
 
-Sites_X=24
-Sites_Y=24
+Sites_X=20
+Sites_Y=20
 #----------------------->
 
 Threads=4
